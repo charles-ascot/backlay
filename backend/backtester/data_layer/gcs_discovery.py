@@ -1,5 +1,6 @@
 """GCS bucket discovery — scan, detect, and download market data files."""
 
+import bz2
 import gzip
 import json
 import logging
@@ -11,7 +12,7 @@ from google.api_core import exceptions as gcs_exceptions
 logger = logging.getLogger("backtest.gcs_discovery")
 
 # Supported file extensions for detection
-SUPPORTED_EXTENSIONS = {".json", ".ndjson", ".gz"}
+SUPPORTED_EXTENSIONS = {".json", ".ndjson", ".gz", ".bz2"}
 
 
 class GCSDiscovery:
@@ -88,9 +89,11 @@ class GCSDiscovery:
         blob = self._bucket.blob(blob_name)
         raw_bytes = blob.download_as_bytes()
 
-        # Decompress if gzipped
+        # Decompress if compressed
         if blob_name.lower().endswith(".gz"):
             raw_bytes = gzip.decompress(raw_bytes)
+        elif blob_name.lower().endswith(".bz2"):
+            raw_bytes = bz2.decompress(raw_bytes)
 
         return raw_bytes.decode("utf-8")
 

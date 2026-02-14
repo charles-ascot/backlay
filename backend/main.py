@@ -1,5 +1,5 @@
 """
-CHIMERA Backtest Simulator - API Server
+CHIMERA Backtest Simulator — API Server
 ========================================
 FastAPI backend for historical data backtesting.
 Frontend served from Cloudflare Pages.
@@ -12,7 +12,8 @@ from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from backtest_engine import run_backtest
+from backtester.orchestrator import BacktestOrchestrator
+from backtester.strategy.rule_based import RuleBasedStrategy
 
 # ── Logging ──
 logging.basicConfig(
@@ -22,7 +23,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("backtest")
 
-app = FastAPI(title="CHIMERA Backtest Simulator", version="1.0.0")
+app = FastAPI(title="CHIMERA Backtest Simulator", version="2.0.0")
 
 # ── CORS: Allow Cloudflare Pages frontend + local dev ──
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://backtest.thync.online")
@@ -53,11 +54,11 @@ async def run_backtest_simulation(
 ):
     """
     Run backtest simulation on uploaded historical stream files.
-    
+
     Args:
         files: List of NDJSON stream files (one per market)
         minutes_before: Time offset before race to place bets (e.g., 30 = 30 min)
-    
+
     Returns:
         Detailed results with P&L breakdown
     """
@@ -66,9 +67,9 @@ async def run_backtest_simulation(
             status_code=400,
             content={"error": "No files uploaded"}
         )
-    
+
     logger.info(f"Received {len(files)} file(s) for backtest at {minutes_before}min before race")
-    
+
     # Read file contents
     market_files = []
     for file in files:
@@ -79,26 +80,27 @@ async def run_backtest_simulation(
         except Exception as e:
             logger.error(f"Failed to read file {file.filename}: {e}")
             continue
-    
+
     if not market_files:
         return JSONResponse(
             status_code=400,
             content={"error": "Failed to read any files"}
         )
-    
-    # Run backtest
+
+    # Run backtest via orchestrator
     try:
-        summary = run_backtest(market_files, minutes_before)
+        orchestrator = BacktestOrchestrator()
+        report = orchestrator.run(market_files, minutes_before)
     except Exception as e:
         logger.error(f"Backtest failed: {e}", exc_info=True)
         return JSONResponse(
             status_code=500,
             content={"error": f"Backtest failed: {str(e)}"}
         )
-    
-    # Format results for frontend
+
+    # Format results for frontend (preserving exact API contract)
     bet_results = []
-    for bet in summary.bet_results:
+    for bet in report.bet_results:
         bet_results.append({
             "market_name": bet.market_name,
             "venue": bet.venue,
@@ -112,10 +114,10 @@ async def run_backtest_simulation(
             "actual_result": bet.actual_result,
             "profit_loss": round(bet.profit_loss, 2),
         })
-    
+
     # Format rule breakdown
     rules_breakdown = []
-    for rule, stats in summary.results_by_rule.items():
+    for rule, stats in report.results_by_rule.items():
         win_rate = (stats['wins'] / stats['total_bets'] * 100) if stats['total_bets'] > 0 else 0
         rules_breakdown.append({
             "rule": rule,
@@ -127,19 +129,19 @@ async def run_backtest_simulation(
             "total_liability": round(stats['total_liability'], 2),
             "net_pnl": round(stats['net_pnl'], 2),
         })
-    
+
     return {
         "summary": {
-            "total_markets": summary.total_markets,
-            "markets_with_bets": summary.markets_with_bets,
-            "markets_skipped": summary.markets_skipped,
-            "total_bets": summary.total_bets,
-            "winning_bets": summary.winning_bets,
-            "losing_bets": summary.losing_bets,
-            "win_rate": summary.win_rate,
-            "total_staked": summary.total_staked,
-            "total_liability": summary.total_liability,
-            "net_profit_loss": summary.net_profit_loss,
+            "total_markets": report.total_markets,
+            "markets_with_bets": report.markets_with_bets,
+            "markets_skipped": report.markets_skipped,
+            "total_bets": report.total_bets,
+            "winning_bets": report.winning_bets,
+            "losing_bets": report.losing_bets,
+            "win_rate": report.win_rate,
+            "total_staked": report.total_staked,
+            "total_liability": report.total_liability,
+            "net_profit_loss": report.net_profit_loss,
         },
         "bet_results": bet_results,
         "rules_breakdown": rules_breakdown,
@@ -149,36 +151,31 @@ async def run_backtest_simulation(
 
 @app.get("/api/rules")
 def get_rules():
-    """Return the active rule set."""
+    """Return the active rule set from the loaded strategy."""
+    strategy = RuleBasedStrategy.default()
+    config = strategy.config
+
+    # Format rules for display
+    rules_display = []
+    for rule in config.get("rules", []):
+        conditions_desc = " AND ".join(
+            f"{c['field']} {c['operator']} {c['value']}"
+            for c in rule.get("conditions", [])
+        )
+        actions_desc = ", ".join(
+            f"{a['bet_type']} {a['target']} @ £{a['stake']}"
+            for a in rule.get("actions", [])
+        )
+        rules_display.append({
+            "id": rule["id"],
+            "condition": conditions_desc,
+            "action": actions_desc,
+        })
+
     return {
-        "strategy": "UK_IE_Favourite_Lay",
-        "version": "2.0",
-        "timing": "pre_off",
-        "markets": {
-            "event_type": "7 (Horse Racing)",
-            "countries": ["GB", "IE"],
-            "market_type": "WIN",
-        },
-        "rules": [
-            {
-                "id": "RULE_1",
-                "condition": "Favourite odds < 2.0",
-                "action": "LAY favourite @ £3",
-            },
-            {
-                "id": "RULE_2",
-                "condition": "Favourite odds 2.0 – 5.0",
-                "action": "LAY favourite @ £2",
-            },
-            {
-                "id": "RULE_3A",
-                "condition": "Favourite odds > 5.0 AND gap to 2nd favourite < 2",
-                "action": "LAY favourite @ £1 + LAY 2nd favourite @ £1",
-            },
-            {
-                "id": "RULE_3B",
-                "condition": "Favourite odds > 5.0 AND gap to 2nd favourite ≥ 2",
-                "action": "LAY favourite @ £1",
-            },
-        ],
+        "strategy": config.get("id", "unknown"),
+        "name": config.get("name", "Unknown"),
+        "version": config.get("version", "0.0"),
+        "markets": config.get("market_filters", {}),
+        "rules": rules_display,
     }

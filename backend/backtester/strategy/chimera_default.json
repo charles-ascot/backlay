@@ -1,0 +1,59 @@
+{
+  "id": "chimera_default",
+  "name": "CHIMERA Default - UK/IE Favourite Lay",
+  "version": "1.0",
+  "market_filters": {
+    "country_codes": ["GB", "IE"],
+    "market_types": ["WIN"],
+    "event_type_ids": ["7"]
+  },
+  "rules": [
+    {
+      "id": "RULE_1",
+      "priority": 1,
+      "conditions": [
+        {"field": "fav_lay_odds", "operator": "lt", "value": 2.0}
+      ],
+      "actions": [
+        {"target": "favourite", "bet_type": "LAY", "stake": 3.0}
+      ],
+      "stop_on_match": true
+    },
+    {
+      "id": "RULE_2",
+      "priority": 2,
+      "conditions": [
+        {"field": "fav_lay_odds", "operator": "gte", "value": 2.0},
+        {"field": "fav_lay_odds", "operator": "lte", "value": 5.0}
+      ],
+      "actions": [
+        {"target": "favourite", "bet_type": "LAY", "stake": 2.0}
+      ],
+      "stop_on_match": true
+    },
+    {
+      "id": "RULE_3A",
+      "priority": 3,
+      "conditions": [
+        {"field": "fav_lay_odds", "operator": "gt", "value": 5.0},
+        {"field": "gap_to_second", "operator": "lt", "value": 2.0}
+      ],
+      "actions": [
+        {"target": "favourite", "bet_type": "LAY", "stake": 1.0},
+        {"target": "second_favourite", "bet_type": "LAY", "stake": 1.0}
+      ],
+      "stop_on_match": true
+    },
+    {
+      "id": "RULE_3B",
+      "priority": 4,
+      "conditions": [
+        {"field": "fav_lay_odds", "operator": "gt", "value": 5.0}
+      ],
+      "actions": [
+        {"target": "favourite", "bet_type": "LAY", "stake": 1.0}
+      ],
+      "stop_on_match": true
+    }
+  ]
+}

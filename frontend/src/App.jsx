@@ -6,14 +6,24 @@ import Summary from './components/Summary'
 
 function App() {
   const [files, setFiles] = useState([])
+  const [gcsUrl, setGcsUrl] = useState('')
+  const [inputMode, setInputMode] = useState('files')  // 'files' | 'gcs'
   const [minutesBefore, setMinutesBefore] = useState(30)
   const [loading, setLoading] = useState(false)
   const [results, setResults] = useState(null)
   const [error, setError] = useState(null)
 
+  const canRun = inputMode === 'files'
+    ? files.length > 0
+    : gcsUrl.length > 5  // "gs://X" minimum
+
   const handleRunBacktest = async () => {
-    if (files.length === 0) {
-      setError('Please upload at least one file')
+    if (!canRun) {
+      setError(
+        inputMode === 'files'
+          ? 'Please upload at least one file'
+          : 'Please enter a GCS bucket URL'
+      )
       return
     }
 
@@ -21,18 +31,33 @@ function App() {
     setError(null)
     setResults(null)
 
-    const formData = new FormData()
-    files.forEach(file => {
-      formData.append('files', file)
-    })
-    formData.append('minutes_before', minutesBefore)
-
     try {
       const apiBase = import.meta.env.VITE_API_URL || ''
-      const response = await fetch(`${apiBase}/api/backtest/run`, {
-        method: 'POST',
-        body: formData,
-      })
+      let response
+
+      if (inputMode === 'files') {
+        // Existing file upload flow
+        const formData = new FormData()
+        files.forEach(file => {
+          formData.append('files', file)
+        })
+        formData.append('minutes_before', minutesBefore)
+
+        response = await fetch(`${apiBase}/api/backtest/run`, {
+          method: 'POST',
+          body: formData,
+        })
+      } else {
+        // GCS bucket flow
+        response = await fetch(`${apiBase}/api/backtest/run-gcs`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            gcs_url: gcsUrl,
+            minutes_before: minutesBefore,
+          }),
+        })
+      }
 
       if (!response.ok) {
         const errorData = await response.json()
@@ -50,8 +75,20 @@ function App() {
 
   const handleReset = () => {
     setFiles([])
+    setGcsUrl('')
     setResults(null)
     setError(null)
+  }
+
+  const getButtonLabel = () => {
+    if (loading) {
+      return inputMode === 'files'
+        ? `Processing ${files.length} market(s)...`
+        : 'Scanning GCS & processing...'
+    }
+    return inputMode === 'files'
+      ? `Run Simulation (${files.length} file${files.length !== 1 ? 's' : ''})`
+      : 'Run Simulation (GCS)'
   }
 
   return (
@@ -71,7 +108,14 @@ function App() {
             {/* Input Section */}
             {!results && (
               <>
-                <FileUpload files={files} setFiles={setFiles} />
+                <FileUpload
+                  files={files}
+                  setFiles={setFiles}
+                  gcsUrl={gcsUrl}
+                  setGcsUrl={setGcsUrl}
+                  inputMode={inputMode}
+                  setInputMode={setInputMode}
+                />
                 <TimeSelector value={minutesBefore} onChange={setMinutesBefore} />
 
                 {error && (
@@ -80,16 +124,16 @@ function App() {
 
                 <button
                   onClick={handleRunBacktest}
-                  disabled={loading || files.length === 0}
+                  disabled={loading || !canRun}
                   className="button-primary"
                 >
                   {loading ? (
                     <>
                       <span className="spinner" />
-                      Processing {files.length} market(s)...
+                      {getButtonLabel()}
                     </>
                   ) : (
-                    `Run Simulation (${files.length} file${files.length !== 1 ? 's' : ''})`
+                    getButtonLabel()
                   )}
                 </button>
               </>

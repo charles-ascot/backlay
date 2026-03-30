@@ -28,16 +28,12 @@ logger = logging.getLogger("backtest")
 app = FastAPI(title="CHIMERA Backtest Simulator", version="2.0.0")
 
 # ── CORS: Allow Cloudflare Pages frontend + local dev ──
-FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://backtest.thync.online")
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:5173")
+_extra_origins = os.environ.get("ALLOWED_ORIGINS", "")
+_cors_origins = [FRONTEND_URL] + [o.strip() for o in _extra_origins.split(",") if o.strip()] + ["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        FRONTEND_URL,
-        "https://backlay.thync.online",
-        "http://localhost:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
